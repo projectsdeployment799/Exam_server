@@ -1175,6 +1175,95 @@ async def get_student_results(student_id: str):
     
     return results
 
+@api_router.get("/student/available-exams/{student_id}")
+async def get_available_exams(student_id: str):
+    """Get all available exams for a student based on their profile"""
+    try:
+        # Get student details
+        student = await db.students.find_one({"id": student_id}, {"_id": 0})
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        
+        # Get all exams that match student's branch, year, and semester
+        exams = await db.exams.find({
+            "branch": student['branch'],
+            "year": student['year'],
+            "semester": student['semester']
+        }, {"_id": 0}).to_list(1000)
+        
+        # For each exam, check if student has already completed it
+        for exam in exams:
+            completed_attempt = await db.exam_attempts.find_one({
+                "student_id": student_id,
+                "exam_id": exam['id'],
+                "completed": True
+            })
+            exam['is_completed'] = completed_attempt is not None
+        
+        return exams
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching exams: {str(e)}")
+
+@api_router.post("/student/start-exam/{exam_id}/{student_id}")
+async def start_exam(exam_id: str, student_id: str, data: dict = None):
+    """Start an exam and create an exam attempt for the student"""
+    try:
+        # Validate student exists
+        student = await db.students.find_one({"id": student_id}, {"_id": 0})
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        
+        # Validate exam exists
+        exam = await db.exams.find_one({"id": exam_id}, {"_id": 0})
+        if not exam:
+            raise HTTPException(status_code=404, detail="Exam not found")
+        
+        # Check if student already has a completed attempt
+        completed_attempt = await db.exam_attempts.find_one({
+            "student_id": student_id,
+            "exam_id": exam_id,
+            "completed": True
+        })
+        if completed_attempt:
+            raise HTTPException(status_code=400, detail="You have already completed this exam")
+        
+        # Get sectioned questions for the exam
+        sectioned_questions = await db.questions.find({
+            "exam_id": exam_id,
+            "section_id": {"$exists": True, "$ne": None}
+        }, {"_id": 0}).to_list(1000)
+        
+        if not sectioned_questions:
+            raise HTTPException(status_code=400, detail="No questions available for this exam")
+        
+        # Get question IDs only
+        question_ids = [q['id'] for q in sectioned_questions]
+        
+        # Create new exam attempt
+        attempt = ExamAttempt(
+            student_id=student_id,
+            exam_id=exam_id
+        )
+        
+        attempt_doc = attempt.model_dump()
+        attempt_doc['started_at'] = attempt_doc['started_at'].isoformat()
+        attempt_doc['question_ids'] = question_ids  # Store the questions for this attempt
+        
+        await db.exam_attempts.insert_one(attempt_doc)
+        
+        return {
+            "success": True,
+            "attempt_id": attempt.id,
+            "exam": exam,
+            "questions": sectioned_questions,
+            "time_limit": exam.get('time_limit', 0)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error starting exam: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error starting exam: {str(e)}")
+
 @api_router.delete("/admin/exam-config/{exam_id}")
 async def delete_exam_config(exam_id: str):
     """Delete exam and all associated questions"""

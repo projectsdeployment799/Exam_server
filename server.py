@@ -1439,6 +1439,72 @@ async def get_exam_status(exam_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching exam status: {str(e)}")
 
+@api_router.get("/student/exam/{exam_id}/{attempt_id}")
+async def get_exam_data(exam_id: str, attempt_id: str):
+    """Fetch exam data and questions for a specific attempt"""
+    try:
+        # Get exam config
+        exam = await db.exams.find_one({"id": exam_id})
+        if not exam:
+            raise HTTPException(status_code=404, detail="Exam not found")
+        
+        # Get exam attempt
+        attempt = await db.exam_attempts.find_one({"id": attempt_id})
+        if not attempt:
+            raise HTTPException(status_code=404, detail="Attempt not found")
+        
+        # Get questions for this attempt
+        questions = await db.questions.find({
+            "exam_id": exam_id,
+            "$or": [
+                {"section_id": {"$in": [q for q in attempt.get("questions", [])]}},
+                {"id": {"$in": attempt.get("questions", [])}}
+            ]
+        }).to_list(length=None)
+        
+        # If no questions found by section, get all exam questions
+        if not questions:
+            questions = await db.questions.find({"exam_id": exam_id}).to_list(length=None)
+        
+        # Organize questions by sections if they exist
+        sections = exam.get("sections", [])
+        
+        return {
+            "exam": {
+                "id": exam["id"],
+                "subject": exam.get("subject"),
+                "branch": exam.get("branch"),
+                "year": exam.get("year"),
+                "semester": exam.get("semester"),
+                "time_limit": exam.get("time_limit"),
+                "sections": sections,
+                "total_questions": len(questions)
+            },
+            "questions": [
+                {
+                    "id": q["id"],
+                    "question_number": q.get("question_number"),
+                    "question_text": q.get("question_text"),
+                    "options": q.get("options", []),
+                    "has_code": q.get("has_code", False),
+                    "code_snippet": q.get("code_snippet"),
+                    "image_url": q.get("image_url"),
+                    "section_id": q.get("section_id")
+                }
+                for q in questions
+            ],
+            "attempt": {
+                "id": attempt["id"],
+                "answers": attempt.get("answers", {}),
+                "marked_for_review": attempt.get("marked_for_review", [])
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error fetching exam data: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ...existing code...
+
 # IMPORTANT: Include the router in the app
 app.include_router(api_router)
 

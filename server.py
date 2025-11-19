@@ -519,6 +519,32 @@ async def get_exam_results(exam_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching results: {str(e)}")
 
+@api_router.get("/admin/available-subjects")
+async def get_available_subjects(
+    branch: str,
+    year: str,
+    semester: str
+):
+    """Get available subjects based on branch, year, and semester"""
+    try:
+        subjects = await db.exams.find(
+            {
+                "branch": branch,
+                "year": year,
+                "semester": semester,
+                "questions_uploaded": True
+            },
+            {"subject": 1, "_id": 0}
+        ).to_list(1000)
+        
+        # Extract unique subjects
+        unique_subjects = list(set([exam['subject'] for exam in subjects if 'subject' in exam]))
+        unique_subjects.sort()
+        
+        return {"subjects": unique_subjects}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching subjects: {str(e)}")
+
 # Student Routes
 @api_router.post("/student/register")
 async def student_register(data: StudentRegister):
@@ -1502,8 +1528,6 @@ async def get_exam_data(exam_id: str, attempt_id: str):
     except Exception as e:
         logger.error(f"Error fetching exam data: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-# ...existing code...
 
 # IMPORTANT: Include the router in the app
 app.include_router(api_router)

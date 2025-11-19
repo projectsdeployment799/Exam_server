@@ -1466,7 +1466,7 @@ async def get_exam_data(exam_id: str, attempt_id: str):
         if not questions:
             questions = await db.questions.find({"exam_id": exam_id}).to_list(length=None)
         
-        # Organize questions by sections if they exist
+        # Get sections from exam - CRITICAL FIX
         sections = exam.get("sections", [])
         
         return {
@@ -1477,8 +1477,7 @@ async def get_exam_data(exam_id: str, attempt_id: str):
                 "year": exam.get("year"),
                 "semester": exam.get("semester"),
                 "time_limit": exam.get("time_limit"),
-                "sections": sections,
-                "total_questions": len(questions)
+                "sections": sections  # ENSURE sections are included here
             },
             "questions": [
                 {
@@ -1497,7 +1496,8 @@ async def get_exam_data(exam_id: str, attempt_id: str):
                 "id": attempt["id"],
                 "answers": attempt.get("answers", {}),
                 "marked_for_review": attempt.get("marked_for_review", [])
-            }
+            },
+            "sections": sections  # ADD sections at root level
         }
     except Exception as e:
         logger.error(f"Error fetching exam data: {str(e)}")
